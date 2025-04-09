@@ -7,7 +7,7 @@ class FilterClassType(int, Enum):
 
     def __str__(self):
         return {
-            self.OPINION: "Повествование",
-            self.QUESTION: "Вопрос",
-            self.APPEAL: "Побуждение",
+            self.OPINION: "OPINION",
+            self.QUESTION: "QUESTION",
+            self.APPEAL: "APPEAL",
         }[self]

@@ -7,7 +7,7 @@ class FilterClassMood(int, Enum):
 
     def __str__(self):
         return {
-            self.NEGATIVE: "Негативный",
-            self.POSITIVE: "Позитивный",
-            self.NEUTRAL: "Нейтральный",
+            self.NEGATIVE: "NEGATIVE",
+            self.POSITIVE: "POSITIVE",
+            self.NEUTRAL: "NEUTRAL",
         }[self]

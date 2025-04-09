@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package messages;
+
+message TwitchMessage {
+  string user = 1;
+  string message = 2;
+  string sentence_type = 3;
+  string sentiment_type = 4;
+  optional string parent_user = 5;
+  optional string parent_message = 6;
+  string channel = 7;
+  string timestamp = 8;
+  string trans_id = 9;
+}
+
+service MessageService {
+  rpc SendMessage (TwitchMessage) returns (ResponseMessage);
+}
+
+message ResponseMessage {
+  string status = 1;
+}

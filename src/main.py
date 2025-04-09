@@ -13,62 +13,114 @@ generator = GenerateCred()
 active_connections = {}
 
 
-@app.get("/connect_twitch/{channel}")
-async def connect_to_channel(channel: str):
-    if channel in active_connections:
-        return {"status": "error", "message": "Already connected to this channel"}
+@app.get("/connect_twitch/{channel}/{id}")
+async def connect_to_channel(channel: str, id: str):
+    url = f"https://www.twitch.tv/{channel}"
+
+    if id in active_connections:
+        return {
+            "status": "error",
+            "message": f"Already connected to channel {channel}.",
+            "url": url,
+            "id": id
+        }
 
     nick = user = generator.generate()
     twitch_ws = TwitchWS(
-        url=f"https://www.twitch.tv/{channel}",
+        url=url,
         nick=nick,
         user=user,
-        password="SCHMOOPIIE"
+        password="SCHMOOPIIE",
+        trans_id=id
     )
-    active_connections[channel] = twitch_ws
+
+    active_connections[id] = twitch_ws
     asyncio.create_task(twitch_ws.start_websocket())
-    return {"status": "success", "message": f"Connected to channel {channel}"}
+    return {
+        "status": "success",
+        "message": f"Successful connected to channel {channel}.",
+        "url": url,
+        "id": id
+    }
 
-@app.get("/disconnect_twitch/{channel}")
-async def disconnect_from_channel(channel: str):
-    if channel not in active_connections:
-        return {"status": "error", "message": "Not connected to this channel"}
+@app.get("/disconnect_twitch/{channel}/{id}")
+async def disconnect_from_channel(channel: str, id: str):
+    url = f"https://www.twitch.tv/{channel}"
+    if id not in active_connections:
+        return {
+            "status": "error",
+            "message": f"Not connected to channel {channel}.",
+            "url": url,
+            "id": id
+        }
 
-    twitch_ws = active_connections.pop(channel)
+    twitch_ws = active_connections.pop(id)
+
     if twitch_ws.ws is not None:
         print(f"Closing WebSocket for channel {channel}")
         await twitch_ws.on_close(twitch_ws.ws)
     else:
         print(f"No active WebSocket for channel {channel}")
-    return {"status": "success", "message": f"Disconnected from channel {channel}"}
 
-@app.get("/connect_vk/{channel}")
-async def connect_to_channel_vk(channel: str):
-    if channel in active_connections:
-        return {"status": "error", "message": "Already connected to this channel"}
+    return {
+        "status": "success",
+        "message": f"Disconnected from channel {channel}.",
+        "url": url,
+        "id": id
+    }
 
+@app.get("/connect_vk/{channel}/{id}")
+async def connect_to_channel_vk(channel: str, id: str):
     translation_url = f"https://live.vkvideo.ru/{channel}"
-    vk_ws = VkWS(translation_url)
 
-    active_connections[channel] = vk_ws
+    if id in active_connections:
+        return {
+            "status": "error",
+            "message": f"Already connected to channel {channel}.",
+            "url": translation_url,
+            "id": id
+        }
+
+    vk_ws = VkWS(translation_url, id)
+
+    active_connections[id] = vk_ws
 
     try:
-        asyncio.create_task(vk_ws.start_websocket())
+        vk_ws.start()
+        return {
+            "status": "success",
+            "message": f"Successful connected to channel {channel}.",
+            "url": translation_url,
+            "id": id
+        }
     except Exception as e:
-        print(f"Ошибка подключения: {e}")
+        print(f"Error while connect: {e}")
 
-@app.get("/disconnect_vk/{channel}")
-async def disconnect_from_channel_vk(channel: str):
-    if channel not in active_connections:
-        return {"status": "error", "message": "Not connected to this channel"}
+@app.get("/disconnect_vk/{channel}/{id}")
+async def disconnect_from_channel_vk(channel: str, id: str):
+    translation_url = f"https://live.vkvideo.ru/{channel}"
+    if id not in active_connections:
+        return {
+            "status": "error",
+            "message": f"Not connected to channel {channel}",
+            "url": translation_url,
+            "id": id
+        }
 
-    vk_ws = active_connections.pop(channel)
+    vk_ws = active_connections.pop(id)
+
     if vk_ws.ws is not None:
         print(f"Closing WebSocket for channel {channel}")
         await vk_ws.on_close(vk_ws.ws)
     else:
         print(f"No active WebSocket for channel {channel}")
-    return {"status": "success", "message": f"Disconnected from channel {channel}"}
+
+    return {
+        "status": "success",
+        "message": f"Disconnected from channel {channel}",
+        "url": translation_url,
+        "id": id
+    }
 
 
 @app.get("/chat/{channel}", response_class=HTMLResponse)

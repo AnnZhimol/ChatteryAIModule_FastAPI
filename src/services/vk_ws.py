@@ -1,20 +1,22 @@
 import asyncio
 import time
 import json
-import pandas as pd
+import threading
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import websockets
 
+from src.grpc.grpc_client import GRPCClient
 from src.services.predict_sentence import PredictSentence
 from src.services.predict_sentiment import PredictSentiment
 from src.services.spam_detection import SpamDetection
 
 
 class VkWS:
-    def __init__(self, channel_name: str):
+    def __init__(self, channel_name: str, trans_id: str):
         self.channel_name = channel_name
         self.messages_data = []
         self.headers = {
@@ -28,8 +30,10 @@ class VkWS:
         self.analyzer = SpamDetection()
         self.predictor_sentence = PredictSentence()
         self.predictor_sentiment = PredictSentiment()
+        self.grpc_client = GRPCClient()
+        self.trans_id = trans_id
 
-    def get_connect_data(self, url: str) -> dict:
+    async def get_connect_data(self, url: str) -> dict:
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
@@ -40,11 +44,9 @@ class VkWS:
             options=chrome_options,
         )
         driver.get(url)
-        time.sleep(5)
-        return self.get_websocket_logs(driver)
+        return await self.get_websocket_logs(driver)
 
-    @staticmethod
-    def get_websocket_logs(driver) -> dict:
+    async def get_websocket_logs(self, driver) -> dict:
         logs = driver.get_log("performance")
         channels = []
         websocket_url, token = None, None
@@ -172,20 +174,20 @@ class VkWS:
             full_message = " ".join(content_parts)
             full_message_parent = " ".join(content_parts_parent)
 
-            if not full_message:
+            if not full_message or self.analyzer.analyze_comment(full_message) > 70:
                 return
 
-            if self.analyzer.analyze_comment(full_message) > 70:
-                return
-
-            url = translation_url
-            last_part = url.split('/')[-1]
-            unix_time = int(time.time())
-            sentence_type = self.predictor_sentence.get_class(full_message)
-            sentiment_type = self.predictor_sentiment.get_class(full_message)
-
-            self.messages_data.append(
-                [author_name, full_message, sentence_type, sentiment_type, author_name_parent, full_message_parent, url, unix_time])
+            self.grpc_client.send_message(
+                user=author_name,
+                message=full_message,
+                sentence_type=str(self.predictor_sentence.get_class(full_message)),
+                sentiment_type=str(self.predictor_sentiment.get_class(full_message)),
+                parent_user=author_name_parent,
+                parent_message=full_message_parent,
+                channel=translation_url.split('/')[-1],
+                timestamp=str(time.time()),
+                trans_id=self.trans_id
+            )
 
         except json.JSONDecodeError:
             print("Error JSON:", message)
@@ -207,8 +209,7 @@ class VkWS:
             except Exception as e:
                 print(f"Error closing WebSocket: {e}")
 
-    @staticmethod
-    async def on_open(ws):
+    async def on_open(self, ws):
         print("Connection opened")
 
         token = ws.token
@@ -233,14 +234,12 @@ class VkWS:
             await ws.send(subscribe_message)
 
     async def start_websocket(self):
-        translation_url = "https://live.vkvideo.ru/zhmil"
-        connect_data = self.get_connect_data(translation_url)
+        connect_data = await self.get_connect_data(self.channel_name)
         if not connect_data:
-            print("Couldn't find credentionals")
+            print("Couldn't find credentials")
             return
 
         uri = connect_data["websocket_url"]
-
         try:
             async with websockets.connect(uri, extra_headers=self.headers) as ws:
                 self.ws = ws
@@ -249,12 +248,18 @@ class VkWS:
                 await self.on_open(ws)
                 try:
                     async for message in ws:
-                        await self.on_message(ws, message, connect_data["chat_channel"], translation_url)
+                        await self.on_message(ws, message, connect_data["chat_channel"], self.channel_name)
                 except Exception as e:
                     await self.on_error(ws, e)
                 finally:
                     await self.on_close(ws)
-                    self.ws = None
         except Exception as e:
-            await asyncio.sleep(5)
-            await self.start_websocket()
+            print(f"Connection failed: {e}")
+
+    def run_websocket(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.start_websocket())
+
+    def start(self):
+        threading.Thread(target=self.run_websocket, daemon=True).start()

@@ -3,25 +3,28 @@ import time
 import websockets
 import asyncio
 import re
+import base64
 
+from src.grpc.grpc_client import GRPCClient
 from src.services.predict_sentence import PredictSentence
 from src.services.predict_sentiment import PredictSentiment
 from src.services.spam_detection import SpamDetection
 
 
 class TwitchWS:
-    def __init__(self, url: str, nick: str, user: str, password: str):
+    def __init__(self, url: str, nick: str, user: str, password: str, trans_id: str):
         self.url = url
         self.nick = nick
         self.user = user
         self.password = password
         self.channel = url.split('/')[-1]
-        self.message_store = {}
         self.messages_data = []
         self.ws = None
         self.analyzer = SpamDetection()
         self.predictor_sentence = PredictSentence()
         self.predictor_sentiment = PredictSentiment()
+        self.grpc_client = GRPCClient()
+        self.trans_id = trans_id
 
     @staticmethod
     async def send_ping(ws):
@@ -63,20 +66,33 @@ class TwitchWS:
                 key, value = tag.split('=', 1)
                 tag_dict[key] = value if value else None
 
-            parent_msg_id = tag_dict.get('reply-parent-msg-id')
-            parent_user_login = tag_dict.get('reply-parent-user-login')
             parent_user_name = tag_dict.get('reply-parent-display-name')
-            parent_message = self.message_store.get(parent_msg_id) if parent_msg_id else None
+            parent_message = tag_dict.get('reply-parent-msg-body')
             sentence_type = self.predictor_sentence.get_class(message_text)
             sentiment_type = self.predictor_sentiment.get_class(message_text)
+
+            parent_user = parent_user_name.replace("\\s", " ") if parent_user_name else None
+            parent_message_text = parent_message.replace("\\s", " ") if parent_message else None
+
+            self.grpc_client.send_message(
+                user=user,
+                message=message_text,
+                sentence_type=str(sentence_type),
+                sentiment_type=str(sentiment_type),
+                parent_user=parent_user,
+                parent_message=parent_message_text,
+                channel=channel,
+                timestamp=str(time.time()),
+                trans_id=self.trans_id
+            )
 
             self.messages_data.append([
                 user,
                 message_text,
                 sentence_type,
                 sentiment_type,
-                parent_user_name or parent_user_login if parent_msg_id else None,
-                parent_message['message'] if parent_message else None,
+                parent_user,
+                parent_message_text,
                 channel,
                 int(time.time())
             ])
