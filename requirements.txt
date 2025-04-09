@@ -17,3 +17,5 @@ websockets~=10.4
 spacy~=3.8.4
 tensorflow~=2.19.0
 natasha~=1.6.0
+grpcio-tools
+grpcio
